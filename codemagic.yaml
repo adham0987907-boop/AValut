@@ -1,0 +1,10 @@
+workflows:
+  android-release:
+    name: Build A Vault APK
+    environment:
+      flutter: stable
+    scripts:
+      - flutter pub get
+      - flutter build apk --release
+    artifacts:
+      - build/app/outputs/flutter-apk/app-release.apk
