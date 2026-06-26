@@ -1,26 +1,21 @@
-name: a_vault
-description: A secure photo & video vault with biometric + PIN lock.
+name: avault
+description: Secure Image Vault
+publish_to: 'none'
 version: 1.0.0+1
 
 environment:
   sdk: '>=3.2.0 <4.0.0'
 
-dependencies: # بلوك واحد بس
+dependencies:
   flutter:
     sdk: flutter
-  local_auth: ^2.1.7
-  flutter_secure_storage: ^9.0.0
-  encrypt: ^5.0.1
+  google_fonts: ^6.1.0
   image_picker: ^1.0.7
+  local_auth: ^2.1.7
   path_provider: ^2.1.3
-  crypto: ^3.0.3
-  flutter_launcher_icons: ^0.13.1 # ضيف المكتبة هنا مع الباقي
+  permission_handler: ^11.3.3
+  encrypt: ^5.0.3
+  photo_manager: ^3.0.0
 
-flutter: # بلوك واحد بس
+flutter:
   uses-material-design: true
-
-flutter_icons: # ده في آخر الملف خالص
-  android: "launcher_icon"
-  ios: true
-  image_path: "assets/icon.png"
-  min_sdk_android: 21
