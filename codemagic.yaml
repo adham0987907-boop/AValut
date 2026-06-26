@@ -1,10 +1,21 @@
 workflows:
   android-release:
-    name: Build A Vault APK
+    name: A Vault Android Build
+    max_build_duration: 60
     environment:
       flutter: stable
+      android_signing:
+        - A_Vault_Keystore
     scripts:
-      - flutter pub get
-      - flutter build apk --release
+      - name: Flutter version
+        script: flutter --version
+      - name: Get packages
+        script: flutter pub get
+      - name: Build APK
+        script: flutter build apk --release --no-tree-shake-icons
     artifacts:
       - build/app/outputs/flutter-apk/app-release.apk
+    publishing:
+      email:
+        recipients:
+          - adham0987907@gmail.com
