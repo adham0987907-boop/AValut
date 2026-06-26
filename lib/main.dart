@@ -1,181 +1,21 @@
 import 'dart:io';
-import 'dart:convert';
+import 'dart:typed_data';
 import 'package:flutter/material.dart';
-import 'package:local_auth/local_auth.dart';
-import 'package:flutter_secure_storage/flutter_secure_storage.dart';
-import 'package:encrypt/encrypt.dart' as encrypt;
+import 'package:google_fonts/google_fonts.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:local_auth/local_auth.dart';
 import 'package:path_provider/path_provider.dart';
-import 'package:crypto/crypto.dart';
+import 'package:permission_handler/permission_handler.dart';
+import 'package:encrypt/encrypt.dart' as encrypt;
+import 'package:photo_manager/photo_manager.dart';
 
-void main() => runApp(const AVaultApp());
-
-class AVaultApp extends StatelessWidget {
-  const AVaultApp({super.key});
-  @override
-  Widget build(BuildContext context) {
-    return MaterialApp(
-      title: 'A Vault',
-      theme: ThemeData.dark(),
-      home: const AuthGate(),
-      debugShowCheckedModeBanner: false,
-    );
-  }
-}
-
-class AuthGate extends StatefulWidget {
-  const AuthGate({super.key});
-  @override
-  State<AuthGate> createState() => _AuthGateState();
-}
-
-class _AuthGateState extends State<AuthGate> {
-  final LocalAuthentication auth = LocalAuthentication();
-  final storage = const FlutterSecureStorage();
-  final pinController = TextEditingController();
-
-  @override
-  void initState() {
-    super.initState();
-    _tryBiometric();
-  }
-
-  Future<void> _tryBiometric() async {
-    bool canCheck = await auth.canCheckBiometrics;
-    if (canCheck) {
-      bool didAuth = await auth.authenticate(
-        localizedReason: 'افتح A Vault بالبصمة',
-        options: const AuthenticationOptions(biometricOnly: true, stickyAuth: true),
-      );
-      if (didAuth && mounted) {
-        Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => const VaultScreen()));
-      }
-    }
-  }
-
-  Future<void> _loginWithPin() async {
-    String? savedPin = await storage.read(key: 'pin');
-    if (savedPin == null) {
-      await storage.write(key: 'pin', value: sha256.convert(utf8.encode(pinController.text)).toString());
-      _goToVault();
-    } else if (savedPin == sha256.convert(utf8.encode(pinController.text)).toString()) {
-      _goToVault();
-    } else {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('PIN غلط')));
-    }
-  }
-
-  void _goToVault() {
-    Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => const VaultScreen()));
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      body: Center(
-        child: Padding(
-          padding: const EdgeInsets.all(24.0),
-          child: Column(mainAxisSize: MainAxisSize.min, children: [
-            const Text('A Vault', style: TextStyle(fontSize: 32, fontWeight: FontWeight.bold)),
-            const SizedBox(height: 20),
-            TextField(
-              controller: pinController,
-              obscureText: true,
-              keyboardType: TextInputType.number,
-              decoration: const InputDecoration(labelText: 'PIN للدخول'),
-            ),
-            const SizedBox(height: 20),
-            ElevatedButton(onPressed: _loginWithPin, child: const Text('دخول')),
-            TextButton(onPressed: _tryBiometric, child: const Text('جرب البصمة')),
-          ]),
-        ),
-      ),
-    );
-  }
-}
-
-class VaultService {
-  static final storage = const FlutterSecureStorage();
-  static encrypt.Key? _key;
-
-  static Future<encrypt.Key> _getKey() async {
-    if (_key != null) return _key!;
-    String? keyStr = await storage.read(key: 'enc_key');
-    if (keyStr == null) {
-      _key = encrypt.Key.fromSecureRandom(32);
-      await storage.write(key: 'enc_key', value: base64Encode(_key!.bytes));
-    } else {
-      _key = encrypt.Key(base64Decode(keyStr));
-    }
-    return _key!;
-  }
-
-  static Future<String> _getHiddenDir() async {
-    final dir = await getApplicationDocumentsDirectory();
-    final hidden = Directory('${dir.path}/.avault');
-    if (!await hidden.exists()) await hidden.create();
-    return hidden.path;
-  }
-
-  static Future<void> encryptAndSave(File file) async {
-    final key = await _getKey();
-    final iv = encrypt.IV.fromSecureRandom(16);
-    final encrypter = encrypt.Encrypter(encrypt.AES(key));
-    final bytes = await file.readAsBytes();
-    final encrypted = encrypter.encryptBytes(bytes, iv: iv);
-    final dir = await _getHiddenDir();
-    final newPath = '$dir/${DateTime.now().millisecondsSinceEpoch}.enc';
-    File(newPath).writeAsBytesSync(iv.bytes + encrypted.bytes);
-  }
-
-  static Future<List<File>> getAllFiles() async {
-    final dir = await _getHiddenDir();
-    return Directory(dir).listSync().whereType<File>().toList();
-  }
-}
-
-class VaultScreen extends StatefulWidget {
-  const VaultScreen({super.key});
-  @override
-  State<VaultScreen> createState() => _VaultScreenState();
-}
-
-class _VaultScreenState extends State<VaultScreen> {
-  final picker = ImagePicker();
-  List<File> files = [];
-
-  @override
-  void initState() {
-    super.initState();
-    _loadFiles();
-  }
-
-  void _loadFiles() async {
-    files = await VaultService.getAllFiles();
-    setState(() {});
-  }
-
-  Future<void> _pickAndHide() async {
-    final XFile? image = await picker.pickImage(source: ImageSource.gallery);
-    if (image != null) {
-      await VaultService.encryptAndSave(File(image.path));
-      _loadFiles();
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(title: const Text('A Vault - المعرض المخفي')),
-      body: GridView.builder(
-        gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(crossAxisCount: 3),
-        itemCount: files.length,
-        itemBuilder: (_, i) => const Card(child: Icon(Icons.lock, size: 40)), // الصور مشفرة فبنعرض أيقونة قفل
-      ),
-      floatingActionButton: FloatingActionButton(
-        onPressed: _pickAndHide,
-        child: const Icon(Icons.add_a_photo),
-      ),
-    );
-  }
-}
+void main() => runApp(const AvaultApp());
+final key = encrypt.Key.fromUtf8('my32lengthsupersecretnooneknows1');
+final iv = encrypt.IV.fromLength(16);
+final encrypter = encrypt.Encrypter(encrypt.AES(key));
+class AvaultApp extends StatelessWidget {const AvaultApp({super.key});@override Widget build(BuildContext context){return MaterialApp(title: 'AVAULT',debugShowCheckedModeBanner: false,theme: ThemeData.dark().copyWith(scaffoldBackgroundColor: const Color(0xFF0A0A0F),colorScheme: const ColorScheme.dark(primary: Color(0xFF8A63D2),secondary: Color(0xFF5A9FFF)),textTheme: GoogleFonts.poppinsTextTheme(ThemeData.dark().textTheme)),home: const AuthScreen());}}
+class AuthScreen extends StatefulWidget {const AuthScreen({super.key});@override State<AuthScreen> createState() => _AuthScreenState();}
+class _AuthScreenState extends State<AuthScreen>{final LocalAuthentication auth=LocalAuthentication();Future<void>_authenticate()async{try{bool did=await auth.authenticate(localizedReason:'افتح الـ Vault ببصمتك',options: const AuthenticationOptions(biometricOnly: true,stickyAuth: true));if(did&&mounted)Navigator.pushReplacement(context,MaterialPageRoute(builder:(_)=>const HomeScreen()));}catch(e){print(e);}}@override void initState(){super.initState();_authenticate();}@override Widget build(BuildContext context){return Scaffold(body:Center(child:Column(mainAxisAlignment:MainAxisAlignment.center,children:[const Icon(Icons.fingerprint,size:100,color:Color(0xFF8A63D2)),const SizedBox(height:20),const Text('Unlock AVAULT',style:TextStyle(fontSize:24,fontWeight:FontWeight.bold)),TextButton(onPressed:_authenticate,child:const Text('Tap to use Biometric'))])));}}
+class HomeScreen extends StatefulWidget {const HomeScreen({super.key});@override State<HomeScreen> createState() => _HomeScreenState();}
+class _HomeScreenState extends State<HomeScreen>{int _currentIndex=0;List<File>_vaultFiles=[];final ImagePicker _picker=ImagePicker();@override void initState(){super.initState();_loadVaultFiles();}Future<void>_loadVaultFiles()async{final dir=await getApplicationDocumentsDirectory();final vaultDir=Directory('${dir.path}/vault');if(await vaultDir.exists()){setState(()=>_vaultFiles=vaultDir.listSync().whereType<File>().where((f)=>f.path.endsWith('.dat')).toList());}}Future<void>_importHideAndDelete()async{var status=await Permission.photos.request();if(!status.isGranted)return;final List<XFile> files=await _picker.pickMultiImage();if(files.isEmpty)return;final dir=await getApplicationDocumentsDirectory();final vaultDir=Directory('${dir.path}/vault');if(!await vaultDir.exists())await vaultDir.create();List<String>idsToDelete=[];for(var file in files){final assetList=await PhotoManager.getAssetPathList(type:RequestType.image);final assets=await assetList.first.getAssetListRange(start:0,end:10000);final asset=assets.firstWhere((a)=>a.title==file.name,orElse:()=>assets.first);final bytes=await File(file.path).readAsBytes();final encrypted=encrypter.encryptBytes(bytes,iv:iv);final newFile=File('${vaultDir.path}/${DateTime.now().millisecondsSinceEpoch}_${file.name}.dat');await newFile.writeAsBytes(encrypted.bytes);idsToDelete.add(asset.id);}if(idsToDelete.isNotEmpty){final result=await PhotoManager.editor.deleteWithIds(idsToDelete);if(result.isNotEmpty){ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text('تم حذف ${result.length} صورة من الاستوديو')));}}_loadVaultFiles();}Future<Uint8List?>_decryptFile(File file)async{final bytes=await file.readAsBytes();final decrypted=encrypter.decryptBytes(encrypt.Encrypted(bytes),iv:iv);return Uint8List.fromList(decrypted);}@override Widget build(BuildContext context){return Scaffold(appBar:AppBar(title:Row(children:[const Icon(Icons.shield_outlined,color:Color(0xFF8A63D2)),const SizedBox(width:8),ShaderMask(shaderCallback:(b)=>const LinearGradient(colors:[Color(0xFF8A63D2),Color(0xFF5A9FFF)]).createShader(b),child:Text('AVAULT',style:GoogleFonts.poppins(fontWeight:FontWeight.bold,color:Colors.white)))]),),body:SingleChildScrollView(padding:const EdgeInsets.all(16),child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Container(padding:const EdgeInsets.all(20),decoration:BoxDecoration(gradient:const LinearGradient(colors:[Color(0xFF2A1A4A),Color(0xFF1A1A2E)]),borderRadius:BorderRadius.circular(20)),child:const Row(children:[Icon(Icons.shield,size:50,color:Color(0xFF8A63D2)),SizedBox(width:16),Expanded(child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text('Your files are'),Text('100% Encrypted + Hidden',style:TextStyle(fontSize:20,fontWeight:FontWeight.bold)),Text('Only you can access them.',style:TextStyle(color:Colors.grey,fontSize:12))])))),const SizedBox(height:24),Row(mainAxisAlignment:MainAxisAlignment.spaceBetween,children:[_VaultBox(icon:Icons.image,color:Colors.purple,title:'Photos',count:'${_vaultFiles.length}'),_VaultBox(icon:Icons.videocam,color:Colors.pink,title:'Videos',count:'0'),_VaultBox(icon:Icons.folder_special,color:Colors.blue,title:'Albums',count:'0'),_VaultBox(icon:Icons.star,color:Colors.teal,title:'Favorites',count:'0')]),const SizedBox(height:24),const Text('Recent',style:TextStyle(fontSize:18,fontWeight:FontWeight.bold)),const SizedBox(height:8),GridView.builder(shrinkWrap:true,physics:const NeverScrollableScrollPhysics(),gridDelegate:const SliverGridDelegateWithFixedCrossAxisCount(crossAxisCount:4,crossAxisSpacing:8,mainAxisSpacing:8),itemCount:_vaultFiles.length>8?8:_vaultFiles.length,itemBuilder:(_,i)=>FutureBuilder<Uint8List?>(future:_decryptFile(_vaultFiles[i]),builder:(context,snap){if(!snap.hasData)return Container(color:Colors.grey[800]);return ClipRRect(borderRadius:BorderRadius.circular(12),child:Image.memory(snap.data!,fit:BoxFit.cover));}),),const SizedBox(height:24),GestureDetector(onTap:_importHideAndDelete,child:Container(padding:const EdgeInsets.all(16),decoration:BoxDecoration(gradient:const LinearGradient(colors:[Color(0xFF2A1A4A),Color(0xFF1A1A2E)]),borderRadius:BorderRadius.circular(20)),child:const Row(children:[Icon(Icons.lock_open,size:40,color:Color(0xFF8A63D2)),SizedBox(width:16),Expanded(child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text('Import & Hide',style:TextStyle(fontWeight:FontWeight.bold)),Text('Add & delete originals',style:TextStyle(color:Colors.grey,fontSize:12))])),Icon(Icons.arrow_forward_ios,size:16)]))),]),),floatingActionButton:FloatingActionButton(onPressed:_importHideAndDelete,backgroundColor:const Color(0xFF8A63D2),child:const Icon(Icons.add,size:30)),floatingActionButtonLocation:FloatingActionButtonLocation.centerDocked,bottomNavigationBar:BottomAppBar(shape:const CircularNotchedRectangle(),notchMargin:8.0,child:BottomNavigationBar(currentIndex:_currentIndex,onTap:(i)=>setState(()=>_currentIndex=i>1?i-1:i),items:const[BottomNavigationBarItem(icon:Icon(Icons.home),label:'Home'),BottomNavigationBarItem(icon:Icon(Icons.folder_outlined),label:'Albums'),BottomNavigationBarItem(icon:Icon(Icons.image_outlined),label:'Gallery'),BottomNavigationBarItem(icon:Icon(Icons.settings_outlined),label:'Settings')])),);}
+Widget _VaultBox({required IconData icon,required Color color,required String title,required String count}){return Expanded(child:Container(margin:const EdgeInsets.symmetric(horizontal:4),padding:const EdgeInsets.symmetric(vertical:16),decoration:BoxDecoration(color:const Color(0xFF1A1A22),borderRadius:BorderRadius.circular(16)),child:Column(children:[Icon(icon,color:color,size:28),const SizedBox(height:8),Text(title,style:const TextStyle(fontSize:12)),Text(count,style:const TextStyle(fontSize:14,fontWeight:FontWeight.bold))])));}}
