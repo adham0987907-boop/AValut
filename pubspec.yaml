@@ -16,5 +16,13 @@ dependencies:
   path_provider: ^2.1.3
   crypto: ^3.0.3
 
+flutter_launcher_icons: ^0.13.1 # ضيف السطر ده
+
 flutter:
   uses-material-design: true
+
+flutter_icons: # وضيف البلوك ده كله في الآخر
+  android: "launcher_icon"
+  ios: true
+  image_path: "assets/icon.png"
+  min_sdk_android: 21 # عشان الأيقونات المدورة تشتغل
